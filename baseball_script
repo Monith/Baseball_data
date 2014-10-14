@@ -1,0 +1,173 @@
+
+
+#R-Code#
+install.packages("RSQLite")
+library("RSQLite")
+db <- dbConnect('SQLite',dbname = 'baseball-archive-2011.sqlite')
+
+dbListTables(db)
+
+team.years <- dbGetQuery(db, 'SELECT DISTINCT yearID FROM TEAMS;')
+range(team.years)
+range(dbGetQuery(db, 'SELECT DISTINCT yearID FROM Batting;'))
+range(dbGetQuery(db, 'SELECT DISTINCT yearID FROM Pitching;'))
+range(dbGetQuery(db, 'SELECT DISTINCT yearID FROM SeriesPost;'))
+range(dbGetQuery(db, 'SELECT DISTINCT yearID FROM Salaries;'))
+
+
+dbGetQuery(db, "SELECT lahmanID, playerID, 
+           managerID FROM Master WHERE playerID != 'NA' AND managerID != 'NA'")
+plyrmgr <- dbGetQuery(db, 'SELECT COUNT(DISTINCT(managerID)) 
+                      FROM Managers WHERE plyrMgr = "Y";') 
+# gets player-managers
+
+count <- dbGetQuery(db,"SELECT COUNT(DISTINCT(lahmanID)),
+           COUNT(DISTINCT(playerID)),COUNT(DISTINCT(managerID)) 
+           FROM Master;") 
+# gets count of unique players and managers
+
+count[[1]] + count[[3]] - plyrmgr[[1]]
+# adds distinct players to distinct managers and 
+#then subtracts the players who were also managers 
+#(those who were double counted)
+
+
+dbGetQuery(db, 'SELECT name FROM TEAMS WHERE WSWin == "Y" 
+           AND yearID == 2000;')
+
+
+ws.losers <- (dbGetQuery(db, "SELECT WSWin, name, yearID FROM Teams WHERE
+                      LgWIN = 'Y' AND WSWin = 'N' AND yearID > 1902;"))
+
+
+win.ws <- (dbGetQuery(db, 'SELECT W, WSWin FROM Teams WHERE
+                      yearID > 1902 AND WSWin != "<NA>";'))
+win.ws$WSWin <- ifelse(win.ws$WSWin == 'Y',1,0)
+cor(win.ws)
+
+
+salaries <- dbGetQuery(db,'SELECT playerID,salary FROM Salaries 
+                       WHERE yearID == 2003 ORDER BY salary DESC LIMIT 3;')
+top.earn <- salaries$playerID
+player.2003 <- dbGetQuery(db,'SELECT nameFirst,nameLast,playerID FROM Master;')
+player.2003[player.2003$playerID %in% top.earn,]
+
+
+dbGetQuery(db,'CREATE TABLE mytable AS SELECT a.*,b.name FROM 
+           Salaries AS a
+           LEFT JOIN Teams AS b 
+           ON a.teamID = b.teamID;')
+
+#payroll for 1999
+team.salaries.1999 <- dbGetQuery(db,'SELECT name,sum(salary) FROM mytable
+                            WHERE yearID == 1999 GROUP BY teamID 
+                            ORDER BY sum(salary) DESC;')
+
+## all payrolls for all years
+team.salaries <- dbGetQuery(db,'SELECT name,sum(salary),yearID FROM mytable
+                            WHERE salary != "<NA>" AND yearID > 1979
+                            GROUP BY yearID,teamID;')
+
+#Graph of payroll by each team throughout the years
+library(lattice)
+xyplot(team.salaries[,2] ~ team.salaries$yearID | factor(team.salaries$name),
+       type = 'l', xlab = 'Year',ylab = 'Team Salaries',
+       main = 'Team Salaries throughout the Years')
+xyplot(team.salaries[,2] ~ team.salaries$yearID,
+       groups=team.salaries$name,col= rainbow(34), 
+       auto.key = list(columns = 4),
+       main = "Payroll for each team in year", type = 'l',
+       xlab = 'Year',ylab = 'Team Salaries')
+#graph of frequency of planes flown by month
+
+
+inflation <- read.table('inflation.txt', header = TRUE)
+inflation <- inflation[inflation$Year > 1979,c('Year','YearAvg.')]
+temp <- inflation
+temp$YearAvg. <- temp$YearAvg./temp$YearAvg.[1]
+rownames(temp) <- seq(length=nrow(temp))
+temp <- temp[1:31,]
+
+
+avg.salary <- dbGetQuery(db,'SELECT yearID,avg(salary) FROM mytable
+                            WHERE salary != "<NA>" AND yearID > 1979
+                            GROUP BY yearID;')
+
+avg.salary$adj <- rep('NA',length(avg.salary))
+avg.salary$adj <- avg.salary[,2] / temp$YearAvg.
+
+xyplot(avg.salary[,3] ~ avg.salary$yearID,
+       main = "Average Salaries adjusted for inflation",
+       type = 'l',xlab = 'Year',ylab = 'Average Salaries')
+
+
+
+dbGetQuery(db,'CREATE TABLE newtable AS SELECT a.*,b.name,divID,W,R,HR,ERA FROM 
+         Salaries AS a
+           LEFT JOIN Teams AS b 
+           ON a.teamID = b.teamID;')
+tsal.AL <- dbGetQuery(db,'SELECT name,sum(salary),yearID,divID FROM newtable
+                            WHERE salary != "<NA>" AND yearID > 1979 AND 
+                            lgID == "AL"
+                            GROUP BY yearID,teamID;')
+xyplot(tsal.AL[,2] ~ tsal.AL$yearID,
+       groups=tsal.AL$name,col= rainbow(17), 
+       auto.key = list(columns = 4),
+       main = "Payroll for each team in year (American League)", type = 'l',
+       xlab = 'Year',ylab = 'Team Salaries')
+
+tsal.NL <- dbGetQuery(db,'SELECT name,sum(salary),yearID,divID FROM newtable
+                            WHERE salary != "<NA>" AND yearID > 1979 AND 
+                            lgID == "NL"
+                            GROUP BY yearID,teamID;')
+xyplot(tsal.NL[,2] ~ tsal.NL$yearID,
+       groups=tsal.NL$name,col= rainbow(17), 
+       auto.key = list(columns = 4),
+       main = "Payroll for each team in year (National League)", type = 'l',
+       xlab = 'Year',ylab = 'Team Salaries')
+
+xyplot(tsal.AL[,2] ~ tsal.AL$yearID | factor(tsal.AL$divID),
+       groups=tsal.AL$name ,col= rainbow(17), 
+       auto.key = list(columns = 4),
+       main = "Payroll for each team in year (American League) By Division", type = 'l',
+       xlab = 'Year',ylab = 'Team Salaries')
+
+xyplot(tsal.NL[,2] ~ tsal.NL$yearID | factor(tsal.NL$divID),
+       groups=tsal.NL$name ,col= rainbow(17), 
+       auto.key = list(columns = 4),
+       main = "Payroll for each team in year (National League) By Division", type = 'l',
+       xlab = 'Year',ylab = 'Team Salaries')
+##Part 2##
+dbGetQuery(db,'CREATE TABLE q9 AS SELECT a.*,b.name,divID,W,R,HR,ERA FROM 
+           Salaries AS a
+           LEFT JOIN Teams AS b 
+           ON a.teamID = b.teamID;')
+tsal.impact <- dbGetQuery(db,'SELECT name,sum(salary),yearID,W,R,HR,ERA FROM q9
+                            WHERE salary != "<NA>" AND yearID > 1979
+                            GROUP BY yearID,teamID;')
+
+colnames(tsal.impact)[2] <- "salary"
+
+model.wins <- lm(W ~ salary,data = tsal.impact)
+summary(model.wins)
+plot.lm(model.wins)
+
+
+model.stats <- lm(salary ~ R + ERA, data = tsal.impact)
+summary(model.stats)
+plot.lm(model.stats)
+
+
+
+
+HR.year <- dbGetQuery(db,'SELECT playerID,var(HR),yearID FROM Batting
+                            GROUP BY yearID,playerID;')
+sd.year <- tapply(HR.year$HR, HR.year$yearID,
+       sd,na.rm = TRUE)
+
+xyplot(HR.year$HR ~ HR.year$yearID, main = "Home Runs Throughout the Years",
+       xlab = 'Year',ylab = 'Home Runs')
+
+plot(sd.year~names(sd.year), main = "Home Runs Throughout the Years",
+     xlab = 'Year',ylab = 'Standard Deviation of Home Runs',type = 'l')
+
